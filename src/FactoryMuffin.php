@@ -21,6 +21,8 @@ use League\FactoryMuffin\Stores\ModelStore;
 use League\FactoryMuffin\Stores\StoreInterface;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
+use ReflectionException;
+use ReflectionProperty;
 use RegexIterator;
 
 /**
@@ -147,7 +149,7 @@ class FactoryMuffin
     protected function make($name, array $attr, $save)
     {
         $definition = $this->getDefinition($name);
-        $model = $this->makeClass($definition->getClass(), $definition->getMaker());
+        $model = $this->makeClass($definition->getClass(), $definition->getMaker(), $attr);
 
         // Make the object as saved so that other generators persist correctly
         if ($save) {
@@ -167,20 +169,21 @@ class FactoryMuffin
      * Make an instance of a class.
      *
      * @param string        $class The model class name.
+     * @param array         $attr  The model attributes.
      * @param callable|null $maker The maker callable.
      *
      * @throws \League\FactoryMuffin\Exceptions\ModelNotFoundException
      *
      * @return object
      */
-    protected function makeClass($class, callable $maker = null)
+    protected function makeClass($class, callable $maker = null, array $attr = [])
     {
         if (!class_exists($class)) {
             throw new ModelNotFoundException($class);
         }
 
         if ($maker) {
-            return call_user_func($maker, $class);
+            return call_user_func($maker, $class, $attr);
         }
 
         return new $class();
@@ -244,10 +247,16 @@ class FactoryMuffin
 
             $setter = 'set'.ucfirst(static::camelize($key));
 
+            try {
+                $reflectionProperty = new ReflectionProperty($model, $key);
+            } catch (ReflectionException) {
+                $reflectionProperty = null;
+            }
+
             // check if there is a setter and use it instead
             if (method_exists($model, $setter) && is_callable([$model, $setter])) {
                 $model->$setter($value);
-            } else {
+            } elseif ($reflectionProperty !== null && $reflectionProperty->isPublic()) {
                 $model->$key = $value;
             }
         }
